@@ -1,0 +1,1042 @@
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import { Textarea } from '../../components/ui/textarea';
+import { Badge } from '../../components/ui/badge';
+import { Switch } from '../../components/ui/switch';
+import { Checkbox } from '../../components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../../components/ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../../components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
+import { Plus, Search, Pencil, Trash2, Package, Loader2, Images, Link, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import { useBrands } from '../../contexts/BrandContext';
+import { useCategories } from '../../contexts/CategoryContext';
+import {
+  VariantManager,
+  VariantDraft,
+  newVariantDraft,
+} from '../../components/admin/VariantManager';
+
+interface VariantImage {
+  imageUrl: string;
+  isPrimary: boolean;
+  sortOrder: number;
+}
+
+interface ProductVariant {
+  variantId: string;
+  variantName: string;
+  images: VariantImage[];
+}
+
+interface Product {
+  id: string;
+  name: string;
+  brand: string;
+  price: number;
+  image: string;
+  images: string[];
+  colors?: string[];
+  variants?: ProductVariant[];
+  category: string;
+  description: string;
+  soldBy: 'meter' | 'piece';
+  clothingType?: string;
+  availableSizes?: string[];
+  inStock?: boolean;
+  isFlatPrice?: boolean;
+  additionalChargeName?: string;
+  additionalChargeAmount?: number;
+  compareAtPrice?: number;
+}
+
+const isVideoUrl = (url: string) => /\.(mp4|webm|ogg|mov|m4v)(?:[?#]|$)/i.test(url);
+
+function ProductMediaPreview({ src, name, className }: { src: string; name: string; className: string }) {
+  if (isVideoUrl(src)) {
+    return <video src={src} aria-label={`${name} video`} className={className} controls preload="metadata" />;
+  }
+
+  return <img src={src} alt={name} className={className} />;
+}
+
+const initialProducts: Product[] = [];
+// Note: Products are now fetched from the real API
+
+export function ProductsManagement() {
+  const { brands } = useBrands();
+  const { categories } = useCategories();
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const [products, setProducts] = useState<Product[]>([]);
+  const [sizeOptions, setSizeOptions] = useState<string[]>([]);
+  const [clothingTypeOptions, setClothingTypeOptions] = useState<string[]>([]);
+
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [popoverProductId, setPopoverProductId] = useState<string | null>(null);
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('adminToken');
+  return { 'Authorization': token ? `Bearer ${token}` : '' };
+};
+
+// Load products from API on mount
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      console.log('[fetchProducts] Starting...');
+      const res = await fetch(`${API_BASE_URL}/api/v1/products`, {
+        headers: getAuthHeaders(),
+      });
+      console.log('[fetchProducts] Response status:', res.status);
+      const data = await res.json();
+      console.log('[fetchProducts] Data received:', data);
+      const mapped = (data.data || []).map((p: any) => {
+        // Handle brand - could be string, object, or missing
+        let brandName = '';
+        if (typeof p.brand === 'string') {
+          brandName = p.brand;
+        } else if (p.brand && typeof p.brand === 'object') {
+          brandName = p.brand.name || String(p.brand._id || '') || '';
+        }
+
+        // Handle category - could be string, object, or missing
+        let categoryName = '';
+        if (typeof p.category === 'string') {
+          categoryName = p.category;
+        } else if (p.category && typeof p.category === 'object') {
+          categoryName = p.category.name || String(p.category._id || '') || '';
+        }
+
+        const images = p.images || [];
+        const image = p.image || '';
+        const fallbackImages = images.length > 0 ? images : (image ? [image] : []);
+        
+        return {
+          id: p._id || p.id,
+          name: p.name,
+          brand: brandName,
+          category: categoryName,
+          price: p.price,
+          image: p.image,
+          images: p.images || [],
+          colors: p.colors || [],
+          variants: (p.variants || []).map((v: any) => ({
+            variantId: v.variantId || v._id || '',
+            variantName: v.variantName || v.name || 'Default',
+            images: Array.isArray(v.images)
+              ? v.images.map((img: any) => ({
+                  imageUrl: typeof img === 'string' ? img : img.imageUrl,
+                  isPrimary: img.isPrimary ?? false,
+                  sortOrder: img.sortOrder ?? 0,
+                }))
+              : [],
+          })),
+          description: p.description,
+          soldBy: p.soldBy,
+          clothingType: p.clothingType || '',
+          availableSizes: p.availableSizes || [],
+          inStock: p.inStock ?? true,
+          isFlatPrice: p.isFlatPrice ?? false,
+          additionalChargeName: p.additionalChargeName || '',
+          additionalChargeAmount: p.additionalChargeAmount || 0,
+          compareAtPrice: p.compareAtPrice || 0,
+        };
+      });
+      console.log('[fetchProducts] Mapped products:', mapped.length);
+      setProducts(mapped);
+    } catch (err) {
+      console.error('[fetchProducts] Exception:', err);
+      toast.error('Failed to load products');
+    }
+  };
+  fetchProducts();
+}, []);
+
+useEffect(() => {
+  const fetchProductOptions = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/product-options`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to load product options');
+      const data = await res.json();
+      setSizeOptions(data?.data?.sizes || []);
+      setClothingTypeOptions(data?.data?.clothingTypes || []);
+    } catch (err) {
+      console.error('[fetchProductOptions] Exception:', err);
+      toast.error('Failed to load size and product type options');
+    }
+  };
+  fetchProductOptions();
+}, []);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [brandFilter, setBrandFilter] = useState('all');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [newProductSize, setNewProductSize] = useState('');
+  
+  // Variants state for the form
+  const [variantsDraft, setVariantsDraft] = useState<VariantDraft[]>([]);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    brand: '',
+    category: '',
+    price: '',
+    soldBy: 'meter' as 'meter' | 'piece',
+    clothingType: '',
+    availableSizes: [] as string[],
+    inStock: true,
+    additionalChargeName: '',
+    additionalChargeAmount: '',
+    compareAtPrice: '',
+  });
+
+  // Filter products
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch =
+      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.category.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
+    const matchesBrand = brandFilter === 'all' || product.brand === brandFilter;
+    const matchesStock =
+      stockFilter === 'all' ||
+      (stockFilter === 'in-stock' && product.inStock) ||
+      (stockFilter === 'out-of-stock' && !product.inStock);
+
+    return matchesSearch && matchesCategory && matchesBrand && matchesStock;
+  });
+
+  const handleOpenDialog = (product?: Product) => {
+    setNewProductSize('');
+    if (product) {
+      setEditingProduct(product);
+      setFormData({
+        name: product.name,
+        description: product.description,
+        brand: product.brand,
+        category: product.category,
+        price: product.price.toString(),
+        soldBy: product.soldBy,
+        clothingType: product.clothingType || '',
+        availableSizes: product.availableSizes || [],
+        inStock: product.inStock ?? true,
+        isFlatPrice: product.isFlatPrice ?? false,
+        additionalChargeName: product.additionalChargeName || '',
+        additionalChargeAmount: product.additionalChargeAmount ? product.additionalChargeAmount.toString() : '',
+        compareAtPrice: product.compareAtPrice ? product.compareAtPrice.toString() : '',
+      });
+
+      if (product.variants && product.variants.length > 0) {
+        setVariantsDraft(
+          product.variants.map((v, i) => {
+            const vImages = Array.isArray(v.images) ? v.images : [];
+            return {
+              clientId: v.variantId || `v-exist-${i}`,
+              name: v.variantName || 'Default',
+              images: vImages.map((img: any, imgIdx: number) => ({
+                id: `ex-${imgIdx}-${Date.now()}-${Math.random()}`,
+                url: typeof img === 'string' ? img : img.imageUrl,
+              })),
+            };
+          })
+        );
+      } else {
+        // Fallback for legacy products
+        const legacyImages = product.images?.length > 0 ? product.images : (product.image ? [product.image] : []);
+        setVariantsDraft([
+          {
+            clientId: `v-legacy-${Date.now()}`,
+            name: 'Default',
+            images: legacyImages.map((url, imgIdx) => ({
+              id: `ex-legacy-${imgIdx}-${Date.now()}-${Math.random()}`,
+              url,
+            })),
+          }
+        ]);
+      }
+    } else {
+      setEditingProduct(null);
+      setFormData({
+        name: '',
+        description: '',
+        brand: brands[0]?.name || 'Shoe Style',
+        category: '',
+        price: '',
+        soldBy: 'meter',
+        clothingType: '',
+        availableSizes: [],
+        inStock: true,
+        isFlatPrice: false,
+        additionalChargeName: '',
+        additionalChargeAmount: '',
+        compareAtPrice: '',
+      });
+      setVariantsDraft([newVariantDraft('Default')]);
+    }
+    setDialogOpen(true);
+  };
+
+  const handleAddProductSize = () => {
+    const size = newProductSize.trim();
+    if (!size) return;
+
+    if (formData.availableSizes.some((item) => item.toLowerCase() === size.toLowerCase())) {
+      toast.error('This size is already selected');
+      return;
+    }
+
+    setFormData({ ...formData, availableSizes: [...formData.availableSizes, size] });
+    setNewProductSize('');
+  };
+
+  const handleSaveProduct = async () => {
+    if (!formData.name || !formData.brand || !formData.category || !formData.price) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    const totalMedia = variantsDraft.reduce((acc, v) => acc + v.images.length, 0);
+    if (totalMedia === 0) {
+      toast.error('Please upload at least one product photo or video in your variants');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      
+      // Upload new files for each variant
+      const finalizedVariants: ProductVariant[] = [];
+      
+      for (const variant of variantsDraft) {
+        const filesToUpload = variant.images.filter((img) => img.file);
+        let uploadedUrls: string[] = [];
+        if (filesToUpload.length > 0) {
+          const imagesForm = new FormData();
+          filesToUpload.forEach((img) => imagesForm.append('images', img.file!));
+          
+          const uploadRes = await fetch(`${API_BASE_URL}/api/v1/admin/products/upload-images`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: imagesForm,
+          });
+
+          const uploadData = await uploadRes.json().catch(() => null);
+          if (!uploadRes.ok) {
+            const reason = uploadData?.message || `Upload returned status ${uploadRes.status}`;
+            toast.error(`Media upload failed for ${variant.name || 'Default'}: ${reason}`);
+            setIsSaving(false);
+            return;
+          }
+
+          uploadedUrls = uploadData?.urls || [];
+        }
+        
+        let uploadIdx = 0;
+        const allUrls = variant.images.map((img) => {
+          if (img.url) return img.url;
+          return uploadedUrls[uploadIdx++];
+        }).filter(Boolean);
+        
+        const imagesPayload = allUrls.map((url, idx) => ({
+          imageUrl: url,
+          isPrimary: idx === 0,
+          sortOrder: idx,
+        }));
+        
+        finalizedVariants.push({
+          variantId: variant.clientId.startsWith('v-exist-') ? variant.clientId.replace('v-exist-', '') : (variant.clientId.startsWith('v-') ? variant.clientId : `v-${Math.random()}`),
+          variantName: variant.name || 'Default',
+          images: imagesPayload,
+        });
+      }
+
+      // Step 2: Save product to database
+      const payload = {
+        name: formData.name,
+        description: formData.description || formData.name, // Ensure description is never blank to satisfy backend validation
+        brand: formData.brand,
+        category: formData.category,
+        price: parseFloat(formData.price),
+        soldBy: formData.soldBy,
+        clothingType: formData.clothingType || null,
+        availableSizes: formData.availableSizes,
+        variants: finalizedVariants,
+        inStock: formData.inStock,
+        isFlatPrice: formData.soldBy === 'meter' ? true : formData.isFlatPrice,
+        isActive: true,
+        additionalChargeName: '',
+        additionalChargeAmount: 0,
+        compareAtPrice: parseFloat(formData.compareAtPrice) || 0,
+      };
+
+  if (editingProduct) {
+    const res = await fetch(`${API_BASE_URL}/api/v1/admin/products/${editingProduct.id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Failed to update product');
+    const data = await res.json();
+    const updatedProduct = {
+      id: data.data._id,
+      name: data.data.name,
+      brand: typeof data.data.brand === 'object' ? data.data.brand?.name : data.data.brand,
+      category: typeof data.data.category === 'object' ? data.data.category?.name : data.data.category,
+      price: data.data.price,
+      image: data.data.image,
+      images: data.data.images || [],
+      colors: data.data.colors || [],
+      variants: data.data.variants || [],
+      description: data.data.description,
+      soldBy: data.data.soldBy,
+      clothingType: data.data.clothingType || '',
+      availableSizes: data.data.availableSizes || [],
+      inStock: data.data.inStock,
+      isFlatPrice: data.data.isFlatPrice ?? false,
+      additionalChargeName: data.data.additionalChargeName || '',
+      additionalChargeAmount: data.data.additionalChargeAmount || 0,
+      compareAtPrice: data.data.compareAtPrice || 0,
+    };
+    setProducts(prev => prev.map(p => p.id === editingProduct.id ? updatedProduct : p));
+    toast.success('Product updated successfully');
+  } else {
+    const res = await fetch(`${API_BASE_URL}/api/v1/admin/products`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error('Failed to create product');
+    const data = await res.json();
+    const newProduct = {
+      id: data.data._id,
+      name: data.data.name,
+      brand: typeof data.data.brand === 'object' ? data.data.brand?.name : data.data.brand,
+      category: typeof data.data.category === 'object' ? data.data.category?.name : data.data.category,
+      price: data.data.price,
+      image: data.data.image,
+      images: data.data.images || [],
+      colors: data.data.colors || [],
+      variants: data.data.variants || [],
+      description: data.data.description,
+      soldBy: data.data.soldBy,
+      clothingType: data.data.clothingType || '',
+      availableSizes: data.data.availableSizes || [],
+      inStock: data.data.inStock,
+      isFlatPrice: data.data.isFlatPrice ?? false,
+      additionalChargeName: data.data.additionalChargeName || '',
+      additionalChargeAmount: data.data.additionalChargeAmount || 0,
+      compareAtPrice: data.data.compareAtPrice || 0,
+    };
+    setProducts(prev => [newProduct, ...prev]);
+    toast.success('Product added successfully');
+  }
+
+  setDialogOpen(false);
+  setFormData({
+    name: '',
+    description: '',
+    brand: brands[0]?.name || 'Shoe Style',
+    category: '',
+    price: '',
+    soldBy: 'meter',
+    clothingType: '',
+    availableSizes: [],
+    inStock: true,
+    isFlatPrice: false,
+    additionalChargeName: '',
+    additionalChargeAmount: '',
+    compareAtPrice: '',
+  });
+    } catch (err) {
+      console.error('Error saving product:', err);
+      toast.error(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteProduct = async (product: Product) => {
+    if (!window.confirm(`Are you sure you want to delete "${product.name}"?`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/products/${product.id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to delete');
+      setProducts(prev => prev.filter(p => p.id !== product.id));
+      toast.success('Product deleted successfully');
+    } catch (err) {
+      toast.error('Failed to delete product');
+    }
+  };
+
+  const handleToggleStock = async (product: Product) => {
+    const nextInStock = !product.inStock;
+    
+    // Optimistic UI update
+    setProducts(prev =>
+      prev.map(p => (p.id === product.id ? { ...p, inStock: nextInStock } : p))
+    );
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/admin/products/${product.id}`, {
+        method: 'PUT',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ inStock: nextInStock }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to update stock status in database');
+      }
+
+      toast.success(`Stock status updated for ${product.name}`);
+    } catch (err) {
+      console.error('Error toggling stock status:', err);
+      toast.error('Failed to update stock status in database');
+      
+      // Revert UI update on failure
+      setProducts(prev =>
+        prev.map(p => (p.id === product.id ? { ...p, inStock: product.inStock } : p))
+      );
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Products Management</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Manage your footwear and accessories inventory
+          </p>
+        </div>
+        <Button
+          onClick={() => handleOpenDialog()}
+          className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+        >
+          <Plus className="size-4" />
+          Add Product
+        </Button>
+      </div>
+
+      {/* Search & Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+          <Input
+            placeholder="Search by name, brand, or category..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 h-11"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[150px] h-11">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map(cat => (
+                <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={brandFilter} onValueChange={setBrandFilter}>
+            <SelectTrigger className="w-[150px] h-11">
+              <SelectValue placeholder="Brand" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {brands.filter(b => b.name && b.name.toLowerCase() !== 'unknown').map(brand => (
+                <SelectItem key={brand.id} value={brand.name}>{brand.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={stockFilter} onValueChange={setStockFilter}>
+            <SelectTrigger className="w-[150px] h-11">
+              <SelectValue placeholder="Stock" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stock</SelectItem>
+              <SelectItem value="in-stock">In Stock</SelectItem>
+              <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Results Count */}
+      <div className="flex items-center justify-between px-1">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Showing <span className="font-medium text-gray-900 dark:text-white">{filteredProducts.length}</span> of <span className="font-medium text-gray-900 dark:text-white">{products.length}</span> products
+        </p>
+      </div>
+
+      {/* Products Grid/Table */}
+      {filteredProducts.length === 0 ? (
+        <Card>
+          <CardContent className="py-16">
+            <div className="flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+              <Package className="size-16 mb-4 opacity-50" />
+              <p className="text-lg font-medium">No products found</p>
+              <p className="text-sm">Try adjusting your search or filters</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredProducts.map((product) => (
+            <Card key={product.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-4">
+                  {/* Product Images Strip */}
+                  <div className="flex-shrink-0">
+                    <div className="flex flex-col gap-1">
+                      {/* Primary media */}
+                      {isVideoUrl(product.variants?.[0]?.images?.[0]?.imageUrl || product.image || (product.images && product.images[0])) ? (
+                        <video
+                          src={product.variants?.[0]?.images?.[0]?.imageUrl || product.image || (product.images && product.images[0])}
+                          aria-label={`${product.name} video`}
+                          className="size-20 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                          controls
+                          preload="metadata"
+                        />
+                      ) : <img
+                        src={product.variants?.[0]?.images?.[0]?.imageUrl || product.image || (product.images && product.images[0])}
+                        alt={product.name}
+                        className="size-20 rounded-lg object-cover border border-gray-200 dark:border-gray-700"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODgiIGhlaWdodD0iODgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgc3Ryb2tlPSIjOTk5IiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjMiPjxyZWN0IHg9IjgiIHk9IjgiIHdpZHRoPSI3MiIgaGVpZ2h0PSI3MiIgcng9IjYiLz48cGF0aCBkPSJtOCA1NiAxNi0yMCAzMiAzMiIvPjxjaXJjbGUgY3g9IjUyIiBjeT0iMzIiIHI9IjgiLz48L3N2Zz4=';
+                        }}
+                      />}
+                      {/* Extra variants/images count badge */}
+                      {(product.variants && product.variants.length > 1) ? (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Images className="size-3" />
+                          {product.variants.length} variants
+                        </div>
+                      ) : (product.images && product.images.length > 1) ? (
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Images className="size-3" />
+                          {product.images.length} media items
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Product Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-lg truncate">{product.name}</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mt-1">
+                          {product.description}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-3">
+                          {product.brand && product.brand.toLowerCase() !== 'unknown' && (
+                            <Badge variant="outline" className="text-xs">
+                              {product.brand}
+                            </Badge>
+                          )}
+                          {product.category && product.category.toLowerCase() !== 'unknown' && (
+                            <Badge variant="outline" className="text-xs">
+                              {product.category}
+                            </Badge>
+                          )}
+                           {/* Selling unit badge */}
+                           <Badge className={product.soldBy === 'meter' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs' : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs'}>
+                             {product.soldBy === 'meter' ? 'Sold by Meter' : 'Sold by Piece'}
+                           </Badge>
+                          {product.clothingType ? (
+                            <Badge variant="secondary" className="text-xs">
+                              {product.clothingType}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        {product.availableSizes && product.availableSizes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {product.availableSizes.slice(0, 8).map((size) => (
+                              <Badge key={`${product.id}-${size}`} variant="outline" className="text-[10px]">
+                                {size}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Price & Stock */}
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                          ₹{product.price}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          per {product.soldBy}
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={product.inStock}
+                              onCheckedChange={() => handleToggleStock(product)}
+                            />
+                            <Badge className={product.inStock ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs'}>
+                              {product.inStock ? 'In Stock' : 'Out'}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenDialog(product)}
+                        className="flex-1"
+                      >
+                        <Pencil className="size-4 mr-2" />
+                        Edit
+                      </Button>
+                      {/* Copy Link — single variant: copy directly; multi-variant: pick from popover */}
+                      {(!product.variants || product.variants.length <= 1) ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const url = `${window.location.origin}/product/${product.id}`;
+                            navigator.clipboard.writeText(url).then(() => {
+                              setCopiedId(product.id);
+                              setTimeout(() => setCopiedId(null), 2000);
+                            });
+                          }}
+                          className={`flex-1 transition-colors ${
+                            copiedId === product.id
+                              ? 'text-emerald-600 border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-blue-200 dark:border-blue-900/30'
+                          }`}
+                          title="Copy product link to share"
+                        >
+                          {copiedId === product.id ? (
+                            <><Check className="size-4 mr-1" /> Copied!</>
+                          ) : (
+                            <><Link className="size-4 mr-1" /> Copy Link</>
+                          )}
+                        </Button>
+                      ) : (
+                        <Popover
+                          open={popoverProductId === product.id}
+                          onOpenChange={(open) => setPopoverProductId(open ? product.id : null)}
+                        >
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-blue-200 dark:border-blue-900/30"
+                              title="Copy variant link to share"
+                            >
+                              <Link className="size-4 mr-1" /> Copy Link
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-64 p-2" align="start">
+                            <p className="text-xs font-semibold text-muted-foreground px-2 py-1 mb-1">Pick a variant to copy its link:</p>
+                            <div className="space-y-1">
+                              {/* All variants option */}
+                              <button
+                                onClick={() => {
+                                  const url = `${window.location.origin}/product/${product.id}`;
+                                  navigator.clipboard.writeText(url).then(() => {
+                                    setCopiedId(`${product.id}-all`);
+                                    setTimeout(() => { setCopiedId(null); setPopoverProductId(null); }, 1800);
+                                  });
+                                }}
+                                className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-md hover:bg-muted text-sm transition-colors"
+                              >
+                                {copiedId === `${product.id}-all` ? (
+                                  <Check className="size-3.5 text-emerald-500 shrink-0" />
+                                ) : (
+                                  <Link className="size-3.5 text-muted-foreground shrink-0" />
+                                )}
+                                <span className="truncate font-medium">All variants (main link)</span>
+                              </button>
+                              {/* Per-variant options */}
+                              {product.variants!.map((variant) => (
+                                <button
+                                  key={variant.variantId}
+                                  onClick={() => {
+                                    const url = `${window.location.origin}/product/${product.id}?variant=${variant.variantId}`;
+                                    navigator.clipboard.writeText(url).then(() => {
+                                      setCopiedId(`${product.id}-${variant.variantId}`);
+                                      setTimeout(() => { setCopiedId(null); setPopoverProductId(null); }, 1800);
+                                    });
+                                  }}
+                                  className="w-full flex items-center gap-2 text-left px-3 py-2 rounded-md hover:bg-muted text-sm transition-colors"
+                                >
+                                  {copiedId === `${product.id}-${variant.variantId}` ? (
+                                    <Check className="size-3.5 text-emerald-500 shrink-0" />
+                                  ) : (
+                                    variant.images?.[0]?.imageUrl ? (
+                                      <ProductMediaPreview
+                                        src={variant.images[0].imageUrl}
+                                        name={variant.variantName}
+                                        className="size-5 rounded object-cover shrink-0"
+                                      />
+                                    ) : (
+                                      <Link className="size-3.5 text-muted-foreground shrink-0" />
+                                    )
+                                  )}
+                                  <span className="truncate">{variant.variantName}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteProduct(product)}
+                        className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 border-red-200 dark:border-red-900/30"
+                      >
+                        <Trash2 className="size-4 mr-2" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+            <DialogDescription>
+              {editingProduct ? 'Update the product details below' : 'Fill in the details to add a new product'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Product Name *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Red Block Heels"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="compareAtPrice">Compare-at Price (₹)</Label>
+                <Input
+                  id="compareAtPrice"
+                  type="number"
+                  value={formData.compareAtPrice}
+                  onChange={(e) => setFormData({ ...formData, compareAtPrice: e.target.value })}
+                  placeholder="Original price"
+                  min="0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="category">Category *</Label>
+                <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="price">Price (₹) *</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  value={formData.price}
+                  onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  placeholder="0"
+                  min="0"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="soldBy">Selling Unit *</Label>
+                <Select value={formData.soldBy} onValueChange={(value: 'meter' | 'piece') => setFormData({ ...formData, soldBy: value })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="meter">Per Meter</SelectItem>
+                    <SelectItem value="piece">Per Piece</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Product Variants, Photos & Videos *</Label>
+              <VariantManager
+                variants={variantsDraft}
+                onChange={setVariantsDraft}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="clothingType">Product type</Label>
+              <Select
+                value={formData.clothingType || 'none'}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, clothingType: value === 'none' ? '' : value })
+                }
+              >
+                <SelectTrigger id="clothingType">
+                  <SelectValue placeholder="Select product type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not specified</SelectItem>
+                  {clothingTypeOptions.map((type) => (
+                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <fieldset className="space-y-3 rounded-md border p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <legend className="text-sm font-medium">Available sizes</legend>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Customers must choose one of these sizes before adding this product to their cart.
+                  </p>
+                </div>
+                {formData.availableSizes.length > 0 && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setFormData({ ...formData, availableSizes: [] })}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={newProductSize}
+                  onChange={(event) => setNewProductSize(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleAddProductSize();
+                    }
+                  }}
+                  placeholder="Add a size, e.g. M(38)"
+                  aria-label="New product size"
+                />
+                <Button type="button" variant="outline" onClick={handleAddProductSize} disabled={!newProductSize.trim()}>
+                  <Plus className="mr-2 size-4" />
+                  Add size
+                </Button>
+              </div>
+              {[...new Set([...sizeOptions, ...formData.availableSizes])].length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                  {[...new Set([...sizeOptions, ...formData.availableSizes])].map((size) => {
+                    const checked = formData.availableSizes.includes(size);
+                    const inputId = `product-size-${size.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                    return (
+                      <label key={size} htmlFor={inputId} className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${checked ? 'border-primary bg-primary/5 font-medium' : 'hover:bg-muted'}`}>
+                        <Checkbox
+                          id={inputId}
+                          checked={checked}
+                          onCheckedChange={(nextChecked) => {
+                            const availableSizes = nextChecked
+                              ? [...formData.availableSizes, size]
+                              : formData.availableSizes.filter((item) => item !== size);
+                            setFormData({ ...formData, availableSizes });
+                          }}
+                        />
+                        <span>{size}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                  Type a size above to add the first option for this product.
+                </p>
+              )}
+              {formData.availableSizes.length > 0 && (
+                <p className="text-xs font-medium text-muted-foreground" aria-live="polite">
+                  {formData.availableSizes.length} size{formData.availableSizes.length === 1 ? '' : 's'} selected
+                </p>
+              )}
+            </fieldset>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveProduct}
+              disabled={isSaving}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Product'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
