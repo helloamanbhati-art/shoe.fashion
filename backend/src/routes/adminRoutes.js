@@ -10,6 +10,7 @@ const Brand = require("../models/Brand");
 const Product = require("../models/Product");
 const ProductOptions = require("../models/ProductOptions");
 const Inventory = require("../models/Inventory");
+const { resolveInitialStock } = require("../services/productStockService");
 const adminController = require("../controllers/adminController");
 const { authenticateAdmin, requireRole } = require("../middleware/auth");
 const { apiLimiter } = require("../middleware/rateLimiter");
@@ -221,6 +222,7 @@ router.post('/products', async (req, res) => {
     const legacyImages = firstVariantImages.length > 0 ? firstVariantImages
       : Array.isArray(data.images) ? data.images : [];
     const legacyImage = data.image || legacyImages[0] || '';
+    const initialStock = resolveInitialStock(data);
 
     const productData = {
       name: data.name,
@@ -235,7 +237,13 @@ router.post('/products', async (req, res) => {
       images: legacyImages,
       colors: data.colors || [],
       variants,
-      inStock: data.inStock ?? true,
+      stock: {
+        available: initialStock.available,
+        reserved: 0,
+        damaged: 0,
+        lowStockThreshold: data.stock?.lowStockThreshold ?? 10,
+      },
+      inStock: initialStock.inStock,
       isFlatPrice: data.soldBy === 'meter' ? true : (data.isFlatPrice ?? false),
       isActive: data.isActive ?? true,
       createdBy: req.admin?._id,
@@ -252,8 +260,8 @@ router.post('/products', async (req, res) => {
 
     await Inventory.create({
       product: product._id,
-      available: data.stock?.available || 100,
-      lowStockThreshold: 10,
+      available: initialStock.available,
+      lowStockThreshold: data.stock?.lowStockThreshold ?? 10,
     });
     console.log('[POST /products] Inventory created for product');
 
