@@ -106,7 +106,7 @@ export function ProductCard({ product }: ProductCardProps) {
 
           <CardContent className="flex flex-1 flex-col bg-transparent px-2.5 pb-3 pt-2.5 text-left [&:last-child]:pb-3 md:px-3">
             <p className="truncate text-sm font-semibold text-foreground">{product.brand}</p>
-            <h3 className="mt-0.5 line-clamp-2 min-h-10 text-sm font-normal leading-5 text-foreground sm:text-[15px]">
+            <h3 className="mt-0.5 line-clamp-2 text-sm font-normal leading-5 text-foreground sm:min-h-10 sm:text-[15px]">
               {product.name}
             </h3>
 
@@ -131,7 +131,7 @@ export function ProductCard({ product }: ProductCardProps) {
               <div className="mt-3" ref={buttonRef}>
                 <Button
                   onClick={handleAddToCart}
-                  className="h-9 w-full rounded-full bg-[#ffd814] text-sm font-medium text-[#0f1111] shadow-none hover:bg-[#f7ca00]"
+                  className="h-9 w-full rounded-full bg-green-700 text-sm font-medium text-white shadow-none hover:bg-green-800"
                 >
                   {product.soldBy === 'meter' ? 'View options' : 'Add to cart'}
                 </Button>
