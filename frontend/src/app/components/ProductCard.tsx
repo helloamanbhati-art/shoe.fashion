@@ -66,7 +66,7 @@ export function ProductCard({ product }: ProductCardProps) {
         className="group block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <Card className="h-full cursor-pointer gap-0 overflow-hidden rounded-none border border-border/70 bg-card p-0 shadow-none transition-colors duration-200 group-hover:border-foreground/25">
-          <div className="relative aspect-[4/5] bg-[#f7f7f7] dark:bg-muted">
+          <div className="relative aspect-square overflow-hidden bg-[#f7f7f7] dark:bg-muted">
             {isVideoMediaUrl(primaryMedia) ? (
               <video
                 src={primaryMedia}
